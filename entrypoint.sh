@@ -41,17 +41,36 @@ run_as_runtime_user() {
   su -s /bin/sh -c "$1" "$RUNTIME_USER"
 }
 
+ensure_local_pg_hba() {
+  PG_HBA_FILE="$PGDATA_DIR/pg_hba.conf"
+  if [ ! -f "$PG_HBA_FILE" ]; then
+    return
+  fi
+
+  TMP_HBA_FILE="$PGDATA_DIR/pg_hba.conf.tmp"
+  {
+    echo "local   all             all                                     trust"
+    echo "host    all             all             127.0.0.1/32            trust"
+    echo "host    all             all             ::1/128                 trust"
+    grep -v "^local   all             all" "$PG_HBA_FILE" | grep -v "127.0.0.1/32" | grep -v "::1/128" || true
+  } > "$TMP_HBA_FILE"
+  mv "$TMP_HBA_FILE" "$PG_HBA_FILE"
+}
+
+reconcile_postgres_access() {
+  run_as_runtime_user "psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -tc \"SELECT 1 FROM pg_roles WHERE rolname = '$POSTGRES_USER';\" | grep -q 1 || psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"CREATE ROLE $POSTGRES_USER LOGIN;\""
+  run_as_runtime_user "psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"ALTER ROLE $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD';\""
+  run_as_runtime_user "psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB';\" | grep -q 1 || psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;\""
+}
+
 PG_SERVER_OPTS="-c listen_addresses='127.0.0.1' -p $POSTGRES_PORT -c unix_socket_directories='/tmp'"
 
 if [ ! -s "$PGDATA_DIR/PG_VERSION" ]; then
-  run_as_runtime_user "$INITDB -D '$PGDATA_DIR' -U '$POSTGRES_USER' --auth-local=trust --auth-host=scram-sha-256"
-
-  run_as_runtime_user "$PG_CTL -D '$PGDATA_DIR' -o \"$PG_SERVER_OPTS\" -w start"
-  run_as_runtime_user "psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"ALTER USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD';\""
-  run_as_runtime_user "psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;\" || true"
-  run_as_runtime_user "$PG_CTL -D '$PGDATA_DIR' -m fast -w stop"
+  run_as_runtime_user "$INITDB -D '$PGDATA_DIR' -U '$POSTGRES_USER' --auth-local=trust --auth-host=trust"
 fi
 
+ensure_local_pg_hba
 run_as_runtime_user "$PG_CTL -D '$PGDATA_DIR' -o \"$PG_SERVER_OPTS\" -w start"
+reconcile_postgres_access
 
 exec su -s /bin/sh -c "uvicorn app.main:app --host 0.0.0.0 --port '${WEB_PORT:-8080}'" "$RUNTIME_USER"
