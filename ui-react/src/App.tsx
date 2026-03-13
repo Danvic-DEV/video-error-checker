@@ -5,6 +5,22 @@ import type { ResultRow, ScanStatus, Settings, Target } from "./types";
 
 type Tab = "dashboard" | "targets" | "results" | "settings";
 
+const TAB_HASH_MAP: Record<Tab, string> = {
+  dashboard: "#dashboard",
+  targets: "#targets",
+  results: "#results",
+  settings: "#settings",
+};
+
+function parseTabFromHash(hash: string): Tab | null {
+  const clean = hash.replace(/^#/, "").trim().toLowerCase();
+  if (clean === "dashboard") return "dashboard";
+  if (clean === "targets") return "targets";
+  if (clean === "results") return "results";
+  if (clean === "settings") return "settings";
+  return null;
+}
+
 const DEFAULT_SETTINGS: Settings = {
   general_discord_webhook: "",
   failed_discord_webhook: "",
@@ -38,7 +54,7 @@ function formatDate(value: string | null): string {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(() => parseTabFromHash(window.location.hash) || "dashboard");
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [targets, setTargets] = useState<Target[]>([]);
   const [results, setResults] = useState<ResultRow[]>([]);
@@ -79,6 +95,25 @@ export default function App() {
   useEffect(() => {
     refreshAll().catch(() => setMessage("Failed to load data"));
   }, [refreshAll]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const fromHash = parseTabFromHash(window.location.hash);
+      if (fromHash && fromHash !== tab) {
+        setTab(fromHash);
+      }
+    };
+
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [tab]);
+
+  useEffect(() => {
+    const desiredHash = TAB_HASH_MAP[tab];
+    if (window.location.hash !== desiredHash) {
+      window.history.replaceState(null, "", desiredHash);
+    }
+  }, [tab]);
 
   useEffect(() => {
     const pollInterval = scanStatus.running ? 1000 : 5000;
