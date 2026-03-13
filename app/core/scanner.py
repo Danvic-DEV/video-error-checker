@@ -117,6 +117,8 @@ def scan_target(
     preloaded_files: list[dict] | None = None,
 ) -> int:
     if not os.path.isdir(target.path):
+        if log_callback is not None:
+            log_callback("warn", f"Target {target.label} skipped: path not found ({target.path})")
         return 0
 
     if preloaded_files is not None:
@@ -135,70 +137,78 @@ def scan_target(
 
     scanned_count = 0
     for file_info in files:
-        file_path = str(file_info["file_path"])
-        last_modified = float(file_info["last_modified"])
-        file_name = os.path.basename(file_path)
+        try:
+            file_path = str(file_info["file_path"])
+            last_modified = float(file_info["last_modified"])
+            file_name = os.path.basename(file_path)
 
-        # Report progress BEFORE spending time on ffmpeg
-        if progress_callback is not None:
-            files_done_ref[0] += 1
-            progress_callback(target.label, file_path, files_done_ref[0], total_files)
-        if log_callback is not None:
-            log_callback("info", f"Checking {file_name} ({files_done_ref[0]}/{total_files or len(files)})")
-
-        existing = (
-            session.query(ScanResult)
-            .filter(ScanResult.target_id == target.id, ScanResult.file_path == file_path)
-            .first()
-        )
-        existing_modified = existing.last_modified if existing else 0.0
-        if last_modified <= existing_modified:
+            # Report progress BEFORE spending time on ffmpeg
+            if progress_callback is not None:
+                files_done_ref[0] += 1
+                progress_callback(target.label, file_path, files_done_ref[0], total_files)
             if log_callback is not None:
-                log_callback("info", f"Skipped unchanged: {file_name}")
-            continue
+                log_callback(
+                    "info",
+                    f"Checking {file_name} ({files_done_ref[0]}/{total_files or len(files)})",
+                )
 
-        started = datetime.utcnow()
-        check = check_video_file(file_path)
-        duration = (datetime.utcnow() - started).total_seconds()
-
-        _upsert_result(
-            session=session,
-            target_id=target.id,
-            file_path=file_path,
-            last_modified=last_modified,
-            status=check["status"],
-            details=check["details"],
-            duration=duration,
-        )
-        scanned_count += 1
-
-        if check["status"] == "OK":
-            if log_callback is not None:
-                log_callback("info", f"OK: {file_name}")
-            send_discord_message(
-                (
-                    f"✅ [{target.label}] Video check completed successfully:\n"
-                    f"File: {file_path}\n"
-                    f"Details: {check['details']}\n"
-                    f"Time Taken: {duration:.2f} seconds"
-                ),
-                general_webhook,
+            existing = (
+                session.query(ScanResult)
+                .filter(ScanResult.target_id == target.id, ScanResult.file_path == file_path)
+                .first()
             )
-        else:
-            if log_callback is not None:
-                log_callback("warn", f"Issue: {file_name} ({check['status']})")
-            send_discord_message(
-                (
-                    f"⚠️ [{target.label}] Video check failed:\n"
-                    f"File: {file_path}\n"
-                    f"Status: {check['status']}\n"
-                    f"Details: {check['details']}\n"
-                    f"Time Taken: {duration:.2f} seconds"
-                ),
-                failed_webhook,
-            )
+            existing_modified = existing.last_modified if existing else 0.0
+            if last_modified <= existing_modified:
+                if log_callback is not None:
+                    log_callback("info", f"Skipped unchanged: {file_name}")
+                continue
 
-    session.commit()
+            started = datetime.utcnow()
+            check = check_video_file(file_path)
+            duration = (datetime.utcnow() - started).total_seconds()
+
+            _upsert_result(
+                session=session,
+                target_id=target.id,
+                file_path=file_path,
+                last_modified=last_modified,
+                status=check["status"],
+                details=check["details"],
+                duration=duration,
+            )
+            session.commit()
+            scanned_count += 1
+
+            if check["status"] == "OK":
+                if log_callback is not None:
+                    log_callback("info", f"OK: {file_name}")
+                send_discord_message(
+                    (
+                        f"✅ [{target.label}] Video check completed successfully:\n"
+                        f"File: {file_path}\n"
+                        f"Details: {check['details']}\n"
+                        f"Time Taken: {duration:.2f} seconds"
+                    ),
+                    general_webhook,
+                )
+            else:
+                if log_callback is not None:
+                    log_callback("warn", f"Issue: {file_name} ({check['status']})")
+                send_discord_message(
+                    (
+                        f"⚠️ [{target.label}] Video check failed:\n"
+                        f"File: {file_path}\n"
+                        f"Status: {check['status']}\n"
+                        f"Details: {check['details']}\n"
+                        f"Time Taken: {duration:.2f} seconds"
+                    ),
+                    failed_webhook,
+                )
+        except Exception as exc:
+            session.rollback()
+            if log_callback is not None:
+                log_callback("error", f"Failed to persist result for {file_info.get('file_path')}: {exc}")
+
     send_discord_message(
         f"✅ [{target.label}] Video scan completed. {scanned_count} files checked.",
         general_webhook,

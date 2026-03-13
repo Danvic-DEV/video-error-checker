@@ -63,3 +63,28 @@ def get_summary(db: Session = Depends(get_db)) -> dict:
         "total_results": int(total_results),
         "total_errors": int(total_errors),
     }
+
+
+@router.get("/diagnostics")
+def get_diagnostics(db: Session = Depends(get_db)) -> dict:
+    total_results = int(db.query(func.count(ScanResult.id)).scalar() or 0)
+    total_targets = int(db.query(func.count(ScanTarget.id)).scalar() or 0)
+    enabled_targets = int(
+        db.query(func.count(ScanTarget.id)).filter(ScanTarget.enabled.is_(True)).scalar() or 0
+    )
+    latest_result = db.query(ScanResult).order_by(ScanResult.scanned_at.desc()).first()
+
+    return {
+        "total_targets": total_targets,
+        "enabled_targets": enabled_targets,
+        "total_results": total_results,
+        "latest_result": {
+            "id": latest_result.id,
+            "target_id": latest_result.target_id,
+            "file_path": latest_result.file_path,
+            "status": latest_result.status,
+            "scanned_at": latest_result.scanned_at.isoformat(),
+        }
+        if latest_result
+        else None,
+    }
