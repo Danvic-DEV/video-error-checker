@@ -35,6 +35,10 @@ def _append_log(level: str, message: str) -> None:
             scan_state.recent_logs = scan_state.recent_logs[-MAX_SCAN_LOGS:]
 
 
+def add_system_log(level: str, message: str) -> None:
+    _append_log(level, message)
+
+
 def _progress_callback(target_label: str, file_path: str, done: int, total: int) -> None:
     with scan_state.lock:
         scan_state.current_target = target_label
@@ -84,7 +88,9 @@ def _run_scan_job() -> None:
 def start_scheduler(interval_seconds: int) -> None:
     if not scheduler.running:
         scheduler.start()
+        _append_log("info", "Scheduler started")
     reschedule_scan_job(interval_seconds)
+    _append_log("info", f"Scan interval set to {max(interval_seconds, 60)} seconds")
 
 
 def reschedule_scan_job(interval_seconds: int) -> None:
@@ -102,6 +108,17 @@ def trigger_manual_scan() -> bool:
     with scan_state.lock:
         if scan_state.running:
             return False
+    thread = threading.Thread(target=_run_scan_job, daemon=True)
+    thread.start()
+    return True
+
+
+def trigger_startup_scan() -> bool:
+    with scan_state.lock:
+        if scan_state.running:
+            _append_log("warn", "Startup scan skipped: scan already running")
+            return False
+    _append_log("info", "Container restart detected: running startup scan")
     thread = threading.Thread(target=_run_scan_job, daemon=True)
     thread.start()
     return True
