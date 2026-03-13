@@ -249,30 +249,72 @@ export default function App() {
         </section>
       ) : null}
 
-      <nav className="tabs">
-        <button className={tab === "dashboard" ? "active" : ""} onClick={() => setTab("dashboard")}>
-          Dashboard
-        </button>
-        <button className={tab === "targets" ? "active" : ""} onClick={() => setTab("targets")}>
-          Scan Targets
-        </button>
-        <button className={tab === "results" ? "active" : ""} onClick={() => setTab("results")}>
-          Results
-        </button>
-        <button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}>
-          Settings
-        </button>
-      </nav>
+      <div className="layout">
+        <aside className="sidebar card">
+          <nav>
+            <ul className="nav-list">
+              <li>
+                <a
+                  href="#"
+                  className={tab === "dashboard" ? "nav-link active" : "nav-link"}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setTab("dashboard");
+                  }}
+                >
+                  Dashboard
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className={tab === "targets" ? "nav-link active" : "nav-link"}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setTab("targets");
+                  }}
+                >
+                  Scan Targets
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className={tab === "results" ? "nav-link active" : "nav-link"}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setTab("results");
+                  }}
+                >
+                  Results
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className={tab === "settings" ? "nav-link active" : "nav-link"}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setTab("settings");
+                  }}
+                >
+                  Settings
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </aside>
 
-      {message ? <p className="message">{message}</p> : null}
-      {showMediaWarning ? (
-        <p className="warning">
-          Add at least one scan target under /media (for example: /media/tv or /media/movies).
-        </p>
-      ) : null}
+        <main className="content">
+          {message ? <p className="message">{message}</p> : null}
+          {showMediaWarning ? (
+            <p className="warning">
+              Add at least one scan target under /media (for example: /media/tv or /media/movies).
+            </p>
+          ) : null}
 
-      {tab === "dashboard" && (
-        <section className="card-grid">
+          {tab === "dashboard" && (
+            <section className="card-grid">
           <div className="card">
             <h3>Enabled Targets</h3>
             <p>{targets.filter((target) => target.enabled).length}</p>
@@ -302,11 +344,11 @@ export default function App() {
                 : JSON.stringify(scanStatus.last_summary)}
             </p>
           </div>
-        </section>
-      )}
+            </section>
+          )}
 
-      {tab === "targets" && (
-        <section className="card">
+          {tab === "targets" && (
+            <section className="card">
           <h3>Add Target</h3>
           <div className="row">
             <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Label (e.g. TV)" />
@@ -371,11 +413,11 @@ export default function App() {
               ))}
             </tbody>
           </table>
-        </section>
-      )}
+            </section>
+          )}
 
-      {tab === "results" && (
-        <section className="card">
+          {tab === "results" && (
+            <section className="card">
           <div className="results-header">
             <h3>Recent Results</h3>
             <div className="row-actions">
@@ -412,11 +454,11 @@ export default function App() {
               ))}
             </tbody>
           </table>
-        </section>
-      )}
+            </section>
+          )}
 
-      {tab === "settings" && (
-        <section className="card form">
+          {tab === "settings" && (
+            <section className="card form">
           <label>
             General Discord Webhook
             <input
@@ -456,8 +498,10 @@ export default function App() {
           <button onClick={saveSettings} disabled={saving}>
             {saving ? "Saving..." : "Save Settings"}
           </button>
-        </section>
-      )}
+            </section>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

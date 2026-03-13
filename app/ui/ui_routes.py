@@ -16,6 +16,25 @@ def assets(asset_path: str):
     return JSONResponse({"detail": "Not Found"}, status_code=404)
 
 
+@router.get("/favicon.svg")
+def favicon_svg():
+    icon_path = static_root / "favicon.svg"
+    if icon_path.exists() and icon_path.is_file():
+        return FileResponse(str(icon_path))
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+
+@router.get("/favicon.ico")
+def favicon_ico():
+    icon_path = static_root / "favicon.ico"
+    if icon_path.exists() and icon_path.is_file():
+        return FileResponse(str(icon_path))
+    svg_path = static_root / "favicon.svg"
+    if svg_path.exists() and svg_path.is_file():
+        return FileResponse(str(svg_path))
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+
 @router.get("/")
 def index():
     index_path = static_root / "index.html"
@@ -26,7 +45,12 @@ def index():
 
 @router.get("/{full_path:path}")
 def spa_catch_all(full_path: str):
-    if full_path.startswith("api/") or full_path.startswith("assets/"):
+    if (
+        full_path.startswith("api/")
+        or full_path.startswith("assets/")
+        or full_path == "favicon.svg"
+        or full_path == "favicon.ico"
+    ):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     index_path = static_root / "index.html"
