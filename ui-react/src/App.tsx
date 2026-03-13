@@ -169,6 +169,7 @@ export default function App() {
     () => [...scanStatus.recent_logs].slice(-80).reverse(),
     [scanStatus.recent_logs]
   );
+  const latestLogEntry = recentLogs[0] ?? null;
 
   async function saveSettings() {
     setSaving(true);
@@ -237,55 +238,23 @@ export default function App() {
 
   return (
     <div className="page">
-      <header className="header">
-        <h1>Video Error Checker</h1>
-        <button onClick={runScan} disabled={scanStatus.running}>
-          {scanStatus.running ? "Scan Running" : "Run Scan Now"}
-        </button>
-      </header>
-
-      {scanStatus.running ? (
-        <section className="card scan-progress">
-          <div className="scan-progress-header">
-            <strong>
-              {scanStatus.current_target ? `Scanning ${scanStatus.current_target}` : "Scanning"}
-            </strong>
-            <span>
-              {scanStatus.files_total > 0
-                ? `${scanStatus.files_done} / ${scanStatus.files_total} files`
-                : "Preparing file list..."}
-            </span>
-          </div>
-          <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${progressPct}%` }} />
-          </div>
-          <p className="scan-progress-file">{scanStatus.current_file || "Waiting for first file..."}</p>
-        </section>
-      ) : null}
-
-      {recentLogs.length > 0 ? (
-        <section className="card scan-log-panel">
-          <div className="results-header">
-            <h3>Live Scan Activity</h3>
-            <span>{scanStatus.running ? "Live" : "Last run"}</span>
-          </div>
-          <p className="scan-db-meta">
-            DB: {scanStatus.db_target || "unknown"} • Persisted rows: {scanStatus.persisted_results_count}
-          </p>
-          <div className="scan-log-list">
-            {recentLogs.map((entry, index) => (
-              <div className="scan-log-row" key={`${entry.timestamp}-${index}`}>
-                <span className="scan-log-time">{formatDate(entry.timestamp)}</span>
-                <span className={`scan-log-level scan-log-${entry.level}`}>{entry.level}</span>
-                <span className="scan-log-message">{entry.message}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
       <div className="layout">
         <aside className="sidebar card">
+          <div className="sidebar-top">
+            <h1>Video Error Checker</h1>
+            <button onClick={runScan} disabled={scanStatus.running}>
+              {scanStatus.running ? "Scan Running" : "Run Scan Now"}
+            </button>
+            <p className="scan-db-meta">
+              DB: {scanStatus.db_target || "unknown"} • Persisted rows: {scanStatus.persisted_results_count}
+            </p>
+            <p className="sidebar-log">
+              {latestLogEntry
+                ? `${formatDate(latestLogEntry.timestamp)} — ${latestLogEntry.message}`
+                : "No scan activity yet"}
+            </p>
+          </div>
+
           <nav>
             <ul className="nav-list">
               <li>
@@ -349,37 +318,93 @@ export default function App() {
           ) : null}
 
           {tab === "dashboard" && (
-            <section className="card-grid">
-          <div className="card">
-            <h3>Enabled Targets</h3>
-            <p>{targets.filter((target) => target.enabled).length}</p>
-          </div>
-          <div className="card">
-            <h3>Total Scanned Files</h3>
-            <p>{totalScanned}</p>
-            {scanStatus.persisted_results_count > totalScanned ? (
-              <p className="message">Live DB rows: {scanStatus.persisted_results_count}</p>
-            ) : null}
-          </div>
-          <div className="card">
-            <h3>Total Errors</h3>
-            <p>{totalErrors}</p>
-          </div>
-          <div className="card full">
-            <h3>Last Scan</h3>
-            <p>Started: {formatDate(scanStatus.last_started)}</p>
-            <p>Completed: {formatDate(effectiveLastCompleted)}</p>
-            {scanStatus.last_started === null && dbLastScan ? (
-              <p className="message">Runtime restarted since last completed scan; using DB history.</p>
-            ) : null}
-            <p>
-              Last run summary:{" "}
-              {Object.keys(scanStatus.last_summary).length === 0
-                ? "No run yet"
-                : JSON.stringify(scanStatus.last_summary)}
-            </p>
-          </div>
-            </section>
+            <>
+              <section className="card-grid">
+                <div className="card">
+                  <h3>Enabled Targets</h3>
+                  <p>{targets.filter((target) => target.enabled).length}</p>
+                </div>
+                <div className="card">
+                  <h3>Total Scanned Files</h3>
+                  <p>{totalScanned}</p>
+                  {scanStatus.persisted_results_count > totalScanned ? (
+                    <p className="message">Live DB rows: {scanStatus.persisted_results_count}</p>
+                  ) : null}
+                </div>
+                <div className="card">
+                  <h3>Total Errors</h3>
+                  <p>{totalErrors}</p>
+                </div>
+                <div className="card">
+                  <h3>Last Completed</h3>
+                  <p>{formatDate(effectiveLastCompleted)}</p>
+                </div>
+              </section>
+
+              <section className="card scan-progress">
+                <div className="scan-progress-header">
+                  <strong>
+                    {scanStatus.running
+                      ? scanStatus.current_target
+                        ? `Scanning ${scanStatus.current_target}`
+                        : "Scanning"
+                      : "Scan Status"}
+                  </strong>
+                  <span>
+                    {scanStatus.running
+                      ? scanStatus.files_total > 0
+                        ? `${scanStatus.files_done} / ${scanStatus.files_total} files`
+                        : "Preparing file list..."
+                      : "Idle"}
+                  </span>
+                </div>
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${progressPct}%` }} />
+                </div>
+                <p className="scan-progress-file">
+                  {scanStatus.running
+                    ? scanStatus.current_file || "Waiting for first file..."
+                    : "No active scan"}
+                </p>
+              </section>
+
+              <section className="card scan-log-panel">
+                <div className="results-header">
+                  <h3>Live Scan Activity</h3>
+                  <span>{scanStatus.running ? "Live" : "Last run"}</span>
+                </div>
+                {recentLogs.length === 0 ? (
+                  <p className="scan-db-meta">No log entries yet.</p>
+                ) : (
+                  <div className="scan-log-list">
+                    {recentLogs.map((entry, index) => (
+                      <div className="scan-log-row" key={`${entry.timestamp}-${index}`}>
+                        <span className="scan-log-time">{formatDate(entry.timestamp)}</span>
+                        <span className={`scan-log-level scan-log-${entry.level}`}>{entry.level}</span>
+                        <span className="scan-log-message">{entry.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="card-grid">
+                <div className="card full">
+                  <h3>Last Scan Details</h3>
+                  <p>Started: {formatDate(scanStatus.last_started)}</p>
+                  <p>Completed: {formatDate(effectiveLastCompleted)}</p>
+                  {scanStatus.last_started === null && dbLastScan ? (
+                    <p className="message">Runtime restarted since last completed scan; using DB history.</p>
+                  ) : null}
+                  <p>
+                    Last run summary:{" "}
+                    {Object.keys(scanStatus.last_summary).length === 0
+                      ? "No run yet"
+                      : JSON.stringify(scanStatus.last_summary)}
+                  </p>
+                </div>
+              </section>
+            </>
           )}
 
           {tab === "targets" && (

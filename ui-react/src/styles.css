@@ -122,6 +122,25 @@ body {
   overflow: auto;
 }
 
+.sidebar-top {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sidebar-top h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.sidebar-log {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .nav-list {
   margin: 0;
   padding: 0;
