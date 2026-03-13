@@ -32,7 +32,7 @@ if getent passwd "$PUID" >/dev/null 2>&1; then
   RUNTIME_USER="$(getent passwd "$PUID" | cut -d: -f1)"
 else
   RUNTIME_USER="appuser"
-  useradd -m -u "$PUID" -g "$PGID" -s /bin/sh "$RUNTIME_USER"
+  useradd -m -o -K UID_MIN=99 -K UID_MAX=60000 -u "$PUID" -g "$PGID" -s /bin/sh "$RUNTIME_USER"
 fi
 
 chown -R "$PUID:$PGID" "$PGDATA_DIR" 2>/dev/null || true
@@ -44,16 +44,10 @@ run_as_runtime_user() {
 PG_SERVER_OPTS="-c listen_addresses='127.0.0.1' -p $POSTGRES_PORT -c unix_socket_directories='/tmp'"
 
 if [ ! -s "$PGDATA_DIR/PG_VERSION" ]; then
-  PWFILE="/tmp/postgres_pwfile.txt"
-  printf '%s' "$POSTGRES_PASSWORD" > "$PWFILE"
-  chmod 600 "$PWFILE"
-
-  run_as_runtime_user "$INITDB -D '$PGDATA_DIR' -U '$POSTGRES_USER' --pwfile='$PWFILE'"
-  rm -f "$PWFILE"
-
-  echo "host all all 127.0.0.1/32 md5" >> "$PGDATA_DIR/pg_hba.conf"
+  run_as_runtime_user "$INITDB -D '$PGDATA_DIR' -U '$POSTGRES_USER' --auth-local=trust --auth-host=scram-sha-256"
 
   run_as_runtime_user "$PG_CTL -D '$PGDATA_DIR' -o \"$PG_SERVER_OPTS\" -w start"
+  run_as_runtime_user "psql -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"ALTER USER $POSTGRES_USER WITH PASSWORD '$POSTGRES_PASSWORD';\""
   run_as_runtime_user "psql -h 127.0.0.1 -p $POSTGRES_PORT -U '$POSTGRES_USER' -d postgres -c \"CREATE DATABASE $POSTGRES_DB OWNER $POSTGRES_USER;\" || true"
   run_as_runtime_user "$PG_CTL -D '$PGDATA_DIR' -m fast -w stop"
 fi
