@@ -10,6 +10,7 @@ from app.core.database import SessionLocal, init_db
 from app.core.models import ScanResult, ScanTarget, Setting
 from app.core.scheduler import (
     add_system_log,
+    enqueue_rescan,
     scheduler,
     start_rescan_worker,
     start_scheduler,
@@ -22,16 +23,19 @@ from app.ui.ui_routes import router as ui_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    pending_rescan_ids: list[int] = []
     with SessionLocal() as session:
-        stale_rescans = (
+        pending_rescans = (
             session.query(ScanResult)
             .filter(ScanResult.status.in_(["Rescanning", "Rescan Queued"]))
+            .order_by(ScanResult.scanned_at.asc(), ScanResult.id.asc())
             .all()
         )
-        for row in stale_rescans:
-            row.status = "Rescan Interrupted"
-            row.details = "Rescan interrupted by application restart"
-        if stale_rescans:
+        for row in pending_rescans:
+            row.status = "Rescan Queued"
+            row.details = "Queued for manual rescan (restored after restart)"
+            pending_rescan_ids.append(row.id)
+        if pending_rescans:
             session.commit()
 
         interval_row = session.query(Setting).filter(Setting.key == "scan_interval_seconds").first()
@@ -41,6 +45,15 @@ async def lifespan(app: FastAPI):
         )
     start_scheduler(interval_seconds)
     start_rescan_worker()
+
+    restored = 0
+    for result_id in pending_rescan_ids:
+        enqueue_state = enqueue_rescan(result_id)
+        if enqueue_state in {"started", "queued"}:
+            restored += 1
+    if restored > 0:
+        add_system_log("info", f"Restored {restored} pending rescans after restart")
+
     if enabled_targets > 0:
         trigger_startup_scan()
     else:

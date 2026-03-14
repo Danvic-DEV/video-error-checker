@@ -38,8 +38,18 @@ export type ScanStatus = {
   files_total: number;
   files_done: number;
   current_file: string;
+  current_file_path: string;
+  current_file_started_at: string | null;
+  current_file_elapsed_seconds: number;
   current_target: string;
   recent_logs: ScanLogEntry[];
   persisted_results_count: number;
   db_target: string;
+  active_rescan: {
+    result_id: number | null;
+    file_path: string;
+    started_at: string | null;
+    elapsed_seconds: number;
+  };
+  queued_rescans: { result_id: number; file_path: string }[];
 };

@@ -36,10 +36,20 @@ const DEFAULT_SCAN_STATUS: ScanStatus = {
   files_total: 0,
   files_done: 0,
   current_file: "",
+  current_file_path: "",
+  current_file_started_at: null,
+  current_file_elapsed_seconds: 0,
   current_target: "",
   recent_logs: [],
   persisted_results_count: 0,
   db_target: "",
+  active_rescan: {
+    result_id: null,
+    file_path: "",
+    started_at: null,
+    elapsed_seconds: 0,
+  },
+  queued_rescans: [],
 };
 
 function formatDate(value: string | null): string {
@@ -361,6 +371,23 @@ export default function App() {
                   <h3>Last Completed</h3>
                   <p>{formatDate(effectiveLastCompleted)}</p>
                 </div>
+                <div className="card">
+                  <h3>Scan Queue</h3>
+                  <p>
+                    {scanStatus.running
+                      ? `${scanStatus.current_file || "(starting...)"} (${scanStatus.current_file_elapsed_seconds.toFixed(1)}s)`
+                      : "IDLE"}
+                  </p>
+                </div>
+                <div className="card">
+                  <h3>Rescan Queue</h3>
+                  <p>
+                    {scanStatus.active_rescan.result_id !== null
+                      ? `#${scanStatus.active_rescan.result_id} (${scanStatus.active_rescan.elapsed_seconds.toFixed(1)}s)`
+                      : "IDLE"}
+                  </p>
+                  <p className="scan-db-meta">Queued: {scanStatus.queued_rescans.length}</p>
+                </div>
               </section>
 
               <section className="card scan-progress">
@@ -379,7 +406,7 @@ export default function App() {
                         : scanStatus.files_done > 0
                           ? `${scanStatus.files_done} files indexed...`
                           : "Preparing file list..."
-                      : "Idle"}
+                      : "IDLE"}
                   </span>
                 </div>
                 <div className="progress-track">
@@ -388,7 +415,12 @@ export default function App() {
                 <p className="scan-progress-file">
                   {scanStatus.running
                     ? scanStatus.current_file || "Waiting for first file..."
-                    : "No active scan"}
+                    : "IDLE"}
+                </p>
+                <p className="scan-db-meta">
+                  {scanStatus.running && scanStatus.current_file
+                    ? `Current file runtime: ${scanStatus.current_file_elapsed_seconds.toFixed(1)}s`
+                    : "Current file runtime: IDLE"}
                 </p>
               </section>
 

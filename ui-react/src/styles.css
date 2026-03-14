@@ -58,6 +58,22 @@ body {
   font-size: 12px;
 }
 
+.queue-list {
+  display: grid;
+  gap: 6px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.queue-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border-bottom: 1px solid #1f2937;
+  padding-bottom: 4px;
+}
+
 .scan-log-row {
   display: grid;
   grid-template-columns: 180px 64px 1fr;
