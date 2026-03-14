@@ -43,6 +43,14 @@ export const api = {
     request<{ status: string }>(`/api/targets/${id}`, { method: "DELETE" }),
 
   getResults: () => request<ResultRow[]>("/api/results"),
+  rescanResult: (id: number) =>
+    request<{
+      id: number;
+      status: string;
+      details: string;
+      scan_duration_seconds: number;
+      scanned_at: string;
+    }>(`/api/results/${id}/rescan`, { method: "POST" }),
   getSummary: () =>
     request<{
       by_target: Record<string, Record<string, number>>;

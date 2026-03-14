@@ -1,11 +1,14 @@
 from datetime import datetime
+import os
+import time
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.models import ScanResult, ScanTarget
+from app.core.scanner import check_video_file
 
 
 router = APIRouter(prefix="/api/results", tags=["results"])
@@ -87,4 +90,49 @@ def get_diagnostics(db: Session = Depends(get_db)) -> dict:
         }
         if latest_result
         else None,
+    }
+
+
+@router.post("/{result_id}/rescan")
+def rescan_result(result_id: int, db: Session = Depends(get_db)) -> dict:
+    result = db.query(ScanResult).filter(ScanResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    file_path = result.file_path
+    if not os.path.exists(file_path):
+        result.status = "File Missing"
+        result.details = "File no longer exists at recorded path"
+        result.scan_duration_seconds = 0.0
+        result.scanned_at = datetime.utcnow()
+        db.commit()
+        return {
+            "id": result.id,
+            "status": result.status,
+            "details": result.details,
+            "scan_duration_seconds": result.scan_duration_seconds,
+            "scanned_at": result.scanned_at.isoformat(),
+        }
+
+    started = time.perf_counter()
+    check = check_video_file(file_path)
+    duration = time.perf_counter() - started
+
+    result.status = check["status"]
+    result.details = check["details"]
+    result.scan_duration_seconds = duration
+    result.scanned_at = datetime.utcnow()
+    try:
+        result.last_modified = os.path.getmtime(file_path)
+    except OSError:
+        pass
+
+    db.commit()
+
+    return {
+        "id": result.id,
+        "status": result.status,
+        "details": result.details,
+        "scan_duration_seconds": result.scan_duration_seconds,
+        "scanned_at": result.scanned_at.isoformat(),
     }

@@ -72,6 +72,7 @@ export default function App() {
   const [browserDirs, setBrowserDirs] = useState<{ name: string; path: string }[]>([]);
   const [browserParent, setBrowserParent] = useState("/media");
   const [errorsOnly, setErrorsOnly] = useState(false);
+  const [rescanningResultId, setRescanningResultId] = useState<number | null>(null);
   const wasRunning = useRef(false);
 
   const refreshAll = useCallback(async () => {
@@ -233,6 +234,19 @@ export default function App() {
       setBrowserOpen(true);
     } catch {
       setMessage("Unable to browse folders. Check /media mount and permissions.");
+    }
+  }
+
+  async function rescanResult(resultId: number) {
+    setRescanningResultId(resultId);
+    try {
+      await api.rescanResult(resultId);
+      setMessage("Result rescanned");
+      await refreshAll();
+    } catch {
+      setMessage("Failed to rescan result");
+    } finally {
+      setRescanningResultId(null);
     }
   }
 
@@ -500,6 +514,7 @@ export default function App() {
                 <th>Status</th>
                 <th>Duration (s)</th>
                 <th>Scanned At</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -510,6 +525,18 @@ export default function App() {
                   <td className={result.status === "OK" ? "ok" : "error"}>{result.status}</td>
                   <td>{result.scan_duration_seconds.toFixed(2)}</td>
                   <td>{formatDate(result.scanned_at)}</td>
+                  <td>
+                    {result.status !== "OK" ? (
+                      <button
+                        onClick={() => rescanResult(result.id)}
+                        disabled={rescanningResultId === result.id}
+                      >
+                        {rescanningResultId === result.id ? "Rescanning..." : "Rescan"}
+                      </button>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
