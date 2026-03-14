@@ -70,9 +70,16 @@ function formatElapsedSeconds(value: number): string {
   if (value < 60) {
     return `${value.toFixed(1)}s`;
   }
-  const minutes = Math.floor(value / 60);
-  const seconds = value - minutes * 60;
-  return `${minutes}min ${seconds.toFixed(1)}s`;
+  if (value < 3600) {
+    const minutes = Math.floor(value / 60);
+    const seconds = value - minutes * 60;
+    return `${minutes}min ${seconds.toFixed(1)}s`;
+  }
+  const hours = Math.floor(value / 3600);
+  const remainderAfterHours = value - hours * 3600;
+  const minutes = Math.floor(remainderAfterHours / 60);
+  const seconds = remainderAfterHours - minutes * 60;
+  return `${hours}h ${minutes}min ${seconds.toFixed(1)}s`;
 }
 
 export default function App() {
@@ -573,7 +580,7 @@ export default function App() {
                 <th>Target</th>
                 <th>File</th>
                 <th>Status</th>
-                <th>Duration (s)</th>
+                <th>Duration</th>
                 <th>Scanned At</th>
                 <th>Actions</th>
               </tr>
@@ -584,7 +591,7 @@ export default function App() {
                   <td>{result.label}</td>
                   <td className="path">{result.file_path}</td>
                   <td className={result.status === "OK" ? "ok" : "error"}>{result.status}</td>
-                  <td>{result.scan_duration_seconds.toFixed(2)}</td>
+                  <td>{formatElapsedSeconds(result.scan_duration_seconds)}</td>
                   <td>{formatDate(result.scanned_at)}</td>
                   <td>
                     {result.status !== "OK" ? (
