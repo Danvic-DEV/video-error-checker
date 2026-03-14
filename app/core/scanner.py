@@ -1,5 +1,4 @@
 import os
-import statistics
 import subprocess
 from collections.abc import Callable
 from datetime import datetime
@@ -98,87 +97,23 @@ def detect_playback_artifacts(file_path: str) -> list[str]:
         audio_duration = _safe_float(str(audio_stream.get("duration", "")))
         if video_duration is not None and audio_duration is not None:
             drift_seconds = abs(video_duration - audio_duration)
-            allowed_drift = max(0.5, video_duration * 0.02)
+            allowed_drift = max(5.0, video_duration * 0.10)
             if drift_seconds > allowed_drift:
                 issues.append(
                     f"Potential A/V sync drift: audio-video duration delta {drift_seconds:.2f}s"
                 )
 
-    # 2) Timestamp monotonicity and frame pacing on first 2 minutes
-    packet_sample = run_command(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-read_intervals",
-            "%+120",
-            "-show_entries",
-            "packet=pts_time,dts_time,duration_time",
-            "-of",
-            "csv=p=0",
-            file_path,
-        ]
-    )
-
-    if packet_sample and not packet_sample.startswith("Error running command"):
-        last_pts: float | None = None
-        non_monotonic_pts = 0
-        invalid_duration_count = 0
-        durations: list[float] = []
-
-        for line in packet_sample.splitlines():
-            parts = [part.strip() for part in line.split(",")]
-            if len(parts) < 3:
-                continue
-
-            pts = _safe_float(parts[0])
-            duration = _safe_float(parts[2])
-
-            if pts is not None and last_pts is not None and pts + 1e-6 < last_pts:
-                non_monotonic_pts += 1
-            if pts is not None:
-                last_pts = pts
-
-            if duration is not None:
-                if duration <= 0:
-                    invalid_duration_count += 1
-                else:
-                    durations.append(duration)
-
-        if non_monotonic_pts > 0:
-            issues.append(f"Bad timestamps: non-monotonic PTS observed ({non_monotonic_pts} packets)")
-        if invalid_duration_count > 0:
-            issues.append(f"Bad timestamps: non-positive packet durations ({invalid_duration_count})")
-
-        if len(durations) >= 30:
-            median_duration = statistics.median(durations)
-            if median_duration > 0:
-                outlier_count = sum(
-                    1
-                    for duration in durations
-                    if abs(duration - median_duration) / median_duration > 0.5
-                )
-                outlier_ratio = outlier_count / len(durations)
-                if outlier_ratio > 0.2:
-                    issues.append(
-                        f"Potential stutter/frame pacing irregularity: {outlier_ratio:.0%} duration outliers"
-                    )
-
-    # 3) Warning-level ffmpeg scan for timestamp/playback warnings
+    # 2) Warning-level ffmpeg scan for strong timestamp/playback warnings
     warning_output = run_command(["ffmpeg", "-v", "warning", "-i", file_path, "-f", "null", "-"])
     warning_markers = (
         "non monotonically increasing dts",
         "invalid dts",
         "invalid pts",
-        "past duration",
-        "timestamp",
-        "out of order",
+        "application provided invalid, non monotonically increasing dts",
     )
     lower_warning_output = warning_output.lower()
     if warning_output and any(marker in lower_warning_output for marker in warning_markers):
-        issues.append("ffmpeg reported warning-level timestamp/playback anomalies")
+        issues.append("ffmpeg reported strong timestamp anomalies")
 
     # Deduplicate while preserving order
     deduped_issues = list(dict.fromkeys(issues))
