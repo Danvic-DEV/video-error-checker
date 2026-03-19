@@ -18,6 +18,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve image name
+        id: vars
+        shell: bash
+        run: |
+          OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${OWNER_LC}/video-error-checker" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -33,7 +40,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/renegadeuk/video-error-checker
+          images: ${{ steps.vars.outputs.image }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -66,8 +73,16 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Build attempt summary
+        if: always()
+        run: |
+          echo "Image: ${{ steps.vars.outputs.image }}"
+          echo "Attempt 1 outcome: ${{ steps.build_push_attempt_1.outcome || 'not-run' }}"
+          echo "Attempt 2 outcome: ${{ steps.build_push_attempt_2.outcome || 'not-run' }}"
+
       - name: Fail if all build attempts failed
         if: steps.build_push_attempt_1.outcome == 'failure' && steps.build_push_attempt_2.outcome == 'failure'
         run: |
-          echo "Docker build/push failed after retry."
+          echo "Docker build/push failed after retry for image: ${{ steps.vars.outputs.image }}"
+          echo "Check the logs for both build-push steps above for the concrete registry/build error."
           exit 1
