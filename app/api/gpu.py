@@ -496,6 +496,17 @@ def get_gpu_diagnostics(db: Session = Depends(get_db)) -> dict:
             }
         )
 
+    successful_cuda_probe = any(
+        probe.get("backend") == "cuda" and bool(probe.get("ok", False)) for probe in probes
+    )
+    if successful_cuda_probe:
+        for check in checks:
+            if check["id"] in {"libcuda", "libnvcuvid"} and not bool(check["ok"]):
+                check["ok"] = True
+                check["severity"] = "info"
+                check["message"] = f"{check['message']} (runtime probe succeeded)"
+                check["hint"] = "Runtime CUDA probe passed; ldconfig visibility can be misleading in containers"
+
     has_errors = any(not bool(check["ok"]) and check["severity"] == "error" for check in checks)
     failed_probe = any(not probe.get("ok", False) for probe in probes)
 
