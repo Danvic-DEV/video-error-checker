@@ -220,7 +220,7 @@ GitHub Actions workflow:
 
 - `.github/workflows/docker-publish.yml`
 - Builds and pushes image to GHCR:
-  - `ghcr.io/renegadeuk/video-error-checker`
+  - `ghcr.io/<repo-owner-lowercase>/video-error-checker` (for this repo currently `ghcr.io/danvic-dev/video-error-checker`)
 - Includes retry logic for transient build/push failures
 
 ## Troubleshooting
