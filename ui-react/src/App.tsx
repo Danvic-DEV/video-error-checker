@@ -278,6 +278,29 @@ export default function App() {
     return gpuDiscovery.devices.filter((device) => device.backend === settings.gpu_backend);
   }, [gpuDiscovery.devices, settings.gpu_backend]);
 
+  const displayedGpuWarnings = useMemo(() => {
+    const selectedBackend = settings.gpu_backend;
+    const hasCudaDevice = gpuDiscovery.devices.some((device) => device.backend === "cuda");
+
+    return gpuDiscovery.warnings.filter((warning) => {
+      const lowerWarning = warning.toLowerCase();
+      const isDriWarning = lowerWarning.includes("/dev/dri");
+      if (!isDriWarning) {
+        return true;
+      }
+
+      if (selectedBackend === "vaapi" || selectedBackend === "qsv") {
+        return true;
+      }
+
+      if (selectedBackend === "auto" && !hasCudaDevice) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [gpuDiscovery.devices, gpuDiscovery.warnings, settings.gpu_backend]);
+
   const progressPct = useMemo(() => {
     if (scanStatus.files_total <= 0) {
       return 0;
@@ -822,9 +845,9 @@ export default function App() {
               {gpuDiagnosticsLoading ? "Refreshing diagnostics..." : "Refresh GPU Diagnostics"}
             </button>
           </div>
-          {gpuDiscovery.warnings.length > 0 ? (
+          {displayedGpuWarnings.length > 0 ? (
             <div className="warning">
-              {gpuDiscovery.warnings.map((warning) => (
+              {displayedGpuWarnings.map((warning) => (
                 <p key={warning}>{warning}</p>
               ))}
             </div>
