@@ -16,6 +16,9 @@ DEFAULT_SETTINGS = {
     "failed_discord_webhook": "",
     "scan_interval_seconds": "3600",
     "video_extensions": ".mp4,.mkv,.avi,.mov,.flv,.wmv",
+    "gpu_enabled": "false",
+    "gpu_backend": "auto",
+    "gpu_device_id": "0",
 }
 
 

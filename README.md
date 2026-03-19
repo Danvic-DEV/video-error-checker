@@ -35,6 +35,8 @@ Media mount (read-only):
 - Full scan trigger (`Run Scan Now`)
 - Progress status (`files_done`, `files_total`, current file/target)
 - Live scan activity log
+- GPU offload settings (global) with backend/device selection
+- In-app GPU diagnostics panel and runtime probe results
 - Dashboard summary and DB diagnostics
 - Results table with "Errors only" filter
 - Per-result **Rescan** action for failed rows
@@ -75,6 +77,12 @@ From repository root:
 docker compose up -d --build
 ```
 
+GPU-enabled startup (NVIDIA):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
 Open UI:
 
 - `http://localhost:8080`
@@ -102,6 +110,12 @@ Current compose file uses:
 - Volumes:
   - `./config:/config`
   - `${MEDIA_PATH:-/media}:/media:ro`
+
+Optional GPU override file:
+
+- `docker-compose.gpu.yml`
+- Enables NVIDIA runtime settings (`gpus: all`, `NVIDIA_VISIBLE_DEVICES`, `NVIDIA_DRIVER_CAPABILITIES`)
+- Includes commented `/dev/dri` mapping guidance for Intel/AMD VAAPI/QSV hosts
 
 ## Unraid deployment notes
 
@@ -150,6 +164,11 @@ Live in-memory runtime fields (e.g., current in-flight scan state) reset on rest
 
 - `GET /api/settings`
 - `PUT /api/settings`
+
+### GPU
+
+- `GET /api/gpu/discovery`
+- `GET /api/gpu/diagnostics`
 
 ### Targets
 
@@ -231,6 +250,14 @@ GitHub Actions workflow:
 
 - New playback heuristics were made conservative, but you can still inspect details text in each result row
 - Use per-row **Rescan** after adjusting settings/thresholds in future versions
+
+### GPU offload fails to initialize
+
+- Open **Settings** and review the GPU diagnostics panel
+- Click **Refresh GPU Diagnostics** after changing container/runtime config
+- If CUDA is selected and diagnostics show missing `libnvcuvid`, ensure NVIDIA video capability mapping is enabled for the container
+- For VAAPI/QSV, ensure `/dev/dri` is mapped and the selected render node exists in the container
+- Keep GPU offload enabled with CPU fallback behavior if intermittent initialization failures occur
 
 ## Known limitations
 

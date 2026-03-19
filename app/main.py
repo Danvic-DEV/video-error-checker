@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.results import router as results_router
 from app.api.scan import router as scan_router
+from app.api.gpu import router as gpu_router
 from app.api.settings import router as settings_router
 from app.api.targets import router as targets_router
 from app.core.database import SessionLocal, init_db
@@ -67,6 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Video Error Checker", lifespan=lifespan)
 
 app.include_router(settings_router)
+app.include_router(gpu_router)
 app.include_router(targets_router)
 app.include_router(results_router)
 app.include_router(scan_router)

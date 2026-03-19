@@ -8,6 +8,9 @@ services:
       - TZ=Europe/London
       - PUID=1000
       - PGID=1000
+      # Optional for NVIDIA GPU workloads:
+      # - NVIDIA_VISIBLE_DEVICES=all
+      # - NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
     ports:
       - "8080:8080"
     volumes:

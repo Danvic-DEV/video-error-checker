@@ -3,6 +3,63 @@ export type Settings = {
   failed_discord_webhook: string;
   scan_interval_seconds: string;
   video_extensions: string;
+  gpu_enabled: boolean;
+  gpu_backend: string;
+  gpu_device_id: string;
+};
+
+export type GpuBackendOption = {
+  id: string;
+  label: string;
+  available: boolean;
+  reason: string;
+};
+
+export type GpuDeviceOption = {
+  id: string;
+  label: string;
+  backend: string;
+  usable: boolean;
+  reason: string;
+};
+
+export type GpuDiscovery = {
+  hwaccels: string[];
+  backends: GpuBackendOption[];
+  devices: GpuDeviceOption[];
+  warnings: string[];
+};
+
+export type GpuCheck = {
+  id: string;
+  severity: string;
+  ok: boolean;
+  message: string;
+  hint: string;
+};
+
+export type GpuProbe = {
+  backend: string;
+  device_id: string;
+  ok: boolean;
+  message: string;
+  hint: string;
+};
+
+export type GpuDiagnostics = {
+  summary: {
+    gpu_enabled: boolean;
+    selected_backend: string;
+    resolved_backend: string;
+    selected_device: string;
+    healthy: boolean;
+  };
+  environment: {
+    NVIDIA_VISIBLE_DEVICES: string;
+    NVIDIA_DRIVER_CAPABILITIES: string;
+  };
+  checks: GpuCheck[];
+  probes: GpuProbe[];
 };
 
 export type Target = {

@@ -3,6 +3,7 @@ import subprocess
 from collections.abc import Callable
 from datetime import datetime
 import json
+from functools import lru_cache
 
 from sqlalchemy.orm import Session
 
@@ -32,7 +33,110 @@ def get_file_list(scan_path: str, video_extensions: tuple[str, ...]) -> list[dic
     return video_files
 
 
-def run_command(command: list[str]) -> str:
+def _as_bool(value: str | bool | None) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_gpu_settings(session: Session) -> dict[str, str | bool]:
+    backend = _get_setting(session, "gpu_backend", "auto").strip().lower() or "auto"
+    if backend not in {"auto", "cuda", "vaapi", "qsv", "opencl", "vulkan"}:
+        backend = "auto"
+    return {
+        "enabled": _as_bool(_get_setting(session, "gpu_enabled", "false")),
+        "backend": backend,
+        "device_id": _get_setting(session, "gpu_device_id", "0").strip() or "0",
+    }
+
+
+@lru_cache(maxsize=1)
+def _get_ffmpeg_hwaccels() -> tuple[str, ...]:
+    returncode, output = run_command_with_code(["ffmpeg", "-hide_banner", "-hwaccels"])
+    if returncode != 0:
+        return tuple()
+
+    methods: list[str] = []
+    for line in output.splitlines():
+        clean = line.strip().lower()
+        if not clean or clean.startswith("hardware acceleration methods"):
+            continue
+        methods.append(clean)
+    return tuple(dict.fromkeys(methods))
+
+
+def _resolve_gpu_backend(backend: str) -> str:
+    if backend != "auto":
+        return backend
+
+    available = set(_get_ffmpeg_hwaccels())
+    for candidate in ("cuda", "qsv", "vaapi", "vulkan", "opencl"):
+        if candidate in available:
+            return candidate
+    return ""
+
+
+def _build_hwaccel_args(gpu_settings: dict[str, str | bool] | None) -> tuple[list[str], str]:
+    if not gpu_settings or not bool(gpu_settings.get("enabled", False)):
+        return [], ""
+
+    backend = _resolve_gpu_backend(str(gpu_settings.get("backend", "auto")))
+    if not backend:
+        return [], ""
+
+    args: list[str] = ["-hwaccel", backend]
+    if backend == "cuda":
+        device_id = str(gpu_settings.get("device_id", "0"))
+        args.extend(["-hwaccel_device", device_id])
+    return args, backend
+
+
+def _is_hwaccel_failure(output: str) -> bool:
+    lowered = output.lower()
+    markers = (
+        "cannot load libnvcuvid",
+        "failed loading nvcuvid",
+        "hwaccel initialisation returned error",
+        "failed setup for format cuda",
+        "device setup failed",
+        "no device available",
+        "could not dynamically load cuda",
+        "invalid device",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _run_media_command(
+    command: list[str],
+    gpu_settings: dict[str, str | bool] | None = None,
+    log_callback: Callable[[str, str], None] | None = None,
+) -> str:
+    hwaccel_args, resolved_backend = _build_hwaccel_args(gpu_settings)
+    if not hwaccel_args:
+        return run_command(command)
+
+    gpu_command = [command[0], *hwaccel_args, *command[1:]]
+    returncode, output = run_command_with_code(gpu_command)
+    if returncode == 0:
+        return output
+
+    if _is_hwaccel_failure(output):
+        if log_callback is not None:
+            log_callback(
+                "warn",
+                (
+                    f"GPU backend {resolved_backend or 'auto'} failed for command; "
+                    "retrying on CPU"
+                ),
+            )
+        return run_command(command)
+
+    return output
+
+
+def run_command_with_code(command: list[str]) -> tuple[int, str]:
     try:
         result = subprocess.run(
             command,
@@ -42,10 +146,15 @@ def run_command(command: list[str]) -> str:
             check=False,
         )
         if result.returncode == 0:
-            return result.stdout.strip()
-        return result.stderr.strip()
+            return result.returncode, result.stdout.strip()
+        return result.returncode, result.stderr.strip()
     except Exception as exc:
-        return f"Error running command: {exc}"
+        return 1, f"Error running command: {exc}"
+
+
+def run_command(command: list[str]) -> str:
+    _, output = run_command_with_code(command)
+    return output
 
 
 def _safe_float(value: str | None) -> float | None:
@@ -71,7 +180,11 @@ def _run_json_command(command: list[str]) -> dict:
         return {}
 
 
-def detect_playback_artifacts(file_path: str) -> list[str]:
+def detect_playback_artifacts(
+    file_path: str,
+    gpu_settings: dict[str, str | bool] | None = None,
+    log_callback: Callable[[str, str], None] | None = None,
+) -> list[str]:
     issues: list[str] = []
 
     # 1) Stream metadata and A/V drift heuristics
@@ -104,7 +217,11 @@ def detect_playback_artifacts(file_path: str) -> list[str]:
                 )
 
     # 2) Warning-level ffmpeg scan for strong timestamp/playback warnings
-    warning_output = run_command(["ffmpeg", "-v", "warning", "-i", file_path, "-f", "null", "-"])
+    warning_output = _run_media_command(
+        ["ffmpeg", "-v", "warning", "-i", file_path, "-f", "null", "-"],
+        gpu_settings=gpu_settings,
+        log_callback=log_callback,
+    )
     warning_markers = (
         "non monotonically increasing dts",
         "invalid dts",
@@ -120,8 +237,16 @@ def detect_playback_artifacts(file_path: str) -> list[str]:
     return deduped_issues
 
 
-def check_video_file(file_path: str) -> dict[str, str]:
-    corruption_check = run_command(["ffmpeg", "-v", "error", "-i", file_path, "-f", "null", "-"])
+def check_video_file(
+    file_path: str,
+    gpu_settings: dict[str, str | bool] | None = None,
+    log_callback: Callable[[str, str], None] | None = None,
+) -> dict[str, str]:
+    corruption_check = _run_media_command(
+        ["ffmpeg", "-v", "error", "-i", file_path, "-f", "null", "-"],
+        gpu_settings=gpu_settings,
+        log_callback=log_callback,
+    )
     if corruption_check:
         return {"status": "Corruption Detected", "details": corruption_check}
 
@@ -142,7 +267,11 @@ def check_video_file(file_path: str) -> dict[str, str]:
     if not stream_check:
         return {"status": "Stream Issues", "details": "No valid video stream detected"}
 
-    playback_issues = detect_playback_artifacts(file_path)
+    playback_issues = detect_playback_artifacts(
+        file_path,
+        gpu_settings=gpu_settings,
+        log_callback=log_callback,
+    )
     if playback_issues:
         return {
             "status": "Playback Artifacts Suspected",
@@ -211,6 +340,28 @@ def scan_target(
 
     general_webhook = _get_setting(session, "general_discord_webhook", "")
     failed_webhook = _get_setting(session, "failed_discord_webhook", "")
+    gpu_settings = get_gpu_settings(session)
+
+    if log_callback is not None:
+        if bool(gpu_settings.get("enabled", False)):
+            backend = str(gpu_settings.get("backend", "auto"))
+            resolved_backend = _resolve_gpu_backend(backend) if backend == "auto" else backend
+            device_id = str(gpu_settings.get("device_id", "0"))
+            if resolved_backend:
+                log_callback(
+                    "info",
+                    (
+                        "GPU offload enabled "
+                        f"(backend={backend}, resolved={resolved_backend}, device={device_id})"
+                    ),
+                )
+            else:
+                log_callback(
+                    "warn",
+                    "GPU offload enabled but no supported backend was resolved; falling back to CPU",
+                )
+        else:
+            log_callback("info", "GPU offload disabled; using CPU decode")
 
     if log_callback is not None:
         log_callback("info", f"Target {target.label}: {len(files)} files discovered")
@@ -244,7 +395,7 @@ def scan_target(
                 continue
 
             started = datetime.utcnow()
-            check = check_video_file(file_path)
+            check = check_video_file(file_path, gpu_settings=gpu_settings, log_callback=log_callback)
             duration = (datetime.utcnow() - started).total_seconds()
 
             _upsert_result(

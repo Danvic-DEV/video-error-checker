@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./api";
-import type { ResultRow, ScanStatus, Settings, Target } from "./types";
+import type {
+  GpuDiagnostics,
+  GpuDiscovery,
+  ResultRow,
+  ScanStatus,
+  Settings,
+  Target,
+} from "./types";
 
 type Tab = "dashboard" | "targets" | "results" | "settings";
 
@@ -26,6 +33,32 @@ const DEFAULT_SETTINGS: Settings = {
   failed_discord_webhook: "",
   scan_interval_seconds: "3600",
   video_extensions: ".mp4,.mkv,.avi,.mov,.flv,.wmv",
+  gpu_enabled: false,
+  gpu_backend: "auto",
+  gpu_device_id: "0",
+};
+
+const DEFAULT_GPU_DISCOVERY: GpuDiscovery = {
+  hwaccels: [],
+  backends: [],
+  devices: [],
+  warnings: [],
+};
+
+const DEFAULT_GPU_DIAGNOSTICS: GpuDiagnostics = {
+  summary: {
+    gpu_enabled: false,
+    selected_backend: "auto",
+    resolved_backend: "cpu",
+    selected_device: "0",
+    healthy: true,
+  },
+  environment: {
+    NVIDIA_VISIBLE_DEVICES: "",
+    NVIDIA_DRIVER_CAPABILITIES: "",
+  },
+  checks: [],
+  probes: [],
 };
 
 const DEFAULT_SCAN_STATUS: ScanStatus = {
@@ -83,6 +116,30 @@ function formatElapsedSeconds(value: number): string {
   return `${hours}h ${minutes}min ${seconds}s`;
 }
 
+function toBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return false;
+  }
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function normalizeSettings(raw: Record<string, unknown>): Settings {
+  return {
+    general_discord_webhook: String(
+      raw.general_discord_webhook ?? DEFAULT_SETTINGS.general_discord_webhook
+    ),
+    failed_discord_webhook: String(raw.failed_discord_webhook ?? DEFAULT_SETTINGS.failed_discord_webhook),
+    scan_interval_seconds: String(raw.scan_interval_seconds ?? DEFAULT_SETTINGS.scan_interval_seconds),
+    video_extensions: String(raw.video_extensions ?? DEFAULT_SETTINGS.video_extensions),
+    gpu_enabled: toBoolean(raw.gpu_enabled ?? DEFAULT_SETTINGS.gpu_enabled),
+    gpu_backend: String(raw.gpu_backend ?? DEFAULT_SETTINGS.gpu_backend).toLowerCase() || "auto",
+    gpu_device_id: String(raw.gpu_device_id ?? DEFAULT_SETTINGS.gpu_device_id),
+  };
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => parseTabFromHash(window.location.hash) || "dashboard");
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -97,6 +154,9 @@ export default function App() {
   const [newPath, setNewPath] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [gpuDiscovery, setGpuDiscovery] = useState<GpuDiscovery>(DEFAULT_GPU_DISCOVERY);
+  const [gpuDiagnostics, setGpuDiagnostics] = useState<GpuDiagnostics>(DEFAULT_GPU_DIAGNOSTICS);
+  const [gpuDiagnosticsLoading, setGpuDiagnosticsLoading] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [browserPath, setBrowserPath] = useState("/media");
   const [browserDirs, setBrowserDirs] = useState<{ name: string; path: string }[]>([]);
@@ -104,6 +164,27 @@ export default function App() {
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [rescanningResultIds, setRescanningResultIds] = useState<Set<number>>(new Set());
   const wasRunning = useRef(false);
+
+  const refreshGpuData = useCallback(async () => {
+    setGpuDiagnosticsLoading(true);
+    const [discoveryResult, diagnosticsResult] = await Promise.allSettled([
+      api.getGpuDiscovery(),
+      api.getGpuDiagnostics(),
+    ]);
+
+    if (discoveryResult.status === "fulfilled") {
+      setGpuDiscovery(discoveryResult.value);
+    } else {
+      setGpuDiscovery(DEFAULT_GPU_DISCOVERY);
+    }
+
+    if (diagnosticsResult.status === "fulfilled") {
+      setGpuDiagnostics(diagnosticsResult.value);
+    } else {
+      setGpuDiagnostics(DEFAULT_GPU_DIAGNOSTICS);
+    }
+    setGpuDiagnosticsLoading(false);
+  }, []);
 
   const refreshAll = useCallback(async () => {
     const [settingsData, targetsData, resultsData, statusData, summaryData] = await Promise.all([
@@ -113,7 +194,7 @@ export default function App() {
       api.getScanStatus(),
       api.getSummary(),
     ]);
-    setSettings({ ...DEFAULT_SETTINGS, ...settingsData });
+    setSettings(normalizeSettings(settingsData as Record<string, unknown>));
     setTargets(targetsData);
     setResults(resultsData);
     setScanStatus({ ...DEFAULT_SCAN_STATUS, ...statusData });
@@ -121,7 +202,8 @@ export default function App() {
     setDbLastScan(summaryData.last_scan || null);
     setDbTotalResults(summaryData.total_results || 0);
     setDbTotalErrors(summaryData.total_errors || 0);
-  }, []);
+    await refreshGpuData();
+  }, [refreshGpuData]);
 
   useEffect(() => {
     refreshAll().catch(() => setMessage("Failed to load data"));
@@ -189,6 +271,13 @@ export default function App() {
     [results, errorsOnly]
   );
 
+  const filteredGpuDevices = useMemo(() => {
+    if (settings.gpu_backend === "auto") {
+      return gpuDiscovery.devices;
+    }
+    return gpuDiscovery.devices.filter((device) => device.backend === settings.gpu_backend);
+  }, [gpuDiscovery.devices, settings.gpu_backend]);
+
   const progressPct = useMemo(() => {
     if (scanStatus.files_total <= 0) {
       return 0;
@@ -211,6 +300,9 @@ export default function App() {
         failed_discord_webhook: settings.failed_discord_webhook,
         scan_interval_seconds: Number(settings.scan_interval_seconds || "3600"),
         video_extensions: settings.video_extensions,
+        gpu_enabled: settings.gpu_enabled,
+        gpu_backend: settings.gpu_backend,
+        gpu_device_id: settings.gpu_device_id,
       });
       setMessage("Settings saved");
       await refreshAll();
@@ -659,6 +751,144 @@ export default function App() {
               }
             />
           </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settings.gpu_enabled}
+              onChange={(e) =>
+                setSettings((prev) => ({ ...prev, gpu_enabled: e.target.checked }))
+              }
+            />
+            Enable GPU hardware offload
+          </label>
+          <label>
+            GPU Backend
+            <select
+              value={settings.gpu_backend}
+              disabled={!settings.gpu_enabled}
+              onChange={(e) => {
+                const nextBackend = e.target.value;
+                setSettings((prev) => {
+                  const candidates =
+                    nextBackend === "auto"
+                      ? gpuDiscovery.devices
+                      : gpuDiscovery.devices.filter((device) => device.backend === nextBackend);
+                  const nextDevice = candidates.some((device) => device.id === prev.gpu_device_id)
+                    ? prev.gpu_device_id
+                    : (candidates[0]?.id ?? "0");
+                  return {
+                    ...prev,
+                    gpu_backend: nextBackend,
+                    gpu_device_id: nextDevice,
+                  };
+                });
+              }}
+            >
+              {gpuDiscovery.backends.length === 0 ? (
+                <option value="auto">Auto</option>
+              ) : (
+                gpuDiscovery.backends.map((backend) => (
+                  <option key={backend.id} value={backend.id}>
+                    {backend.label}
+                    {!backend.available ? " (unavailable)" : ""}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <label>
+            GPU Device
+            <select
+              value={settings.gpu_device_id}
+              disabled={!settings.gpu_enabled || filteredGpuDevices.length === 0}
+              onChange={(e) =>
+                setSettings((prev) => ({ ...prev, gpu_device_id: e.target.value }))
+              }
+            >
+              {filteredGpuDevices.length === 0 ? (
+                <option value="0">No GPU device discovered</option>
+              ) : (
+                filteredGpuDevices.map((device) => (
+                  <option key={`${device.backend}-${device.id}`} value={device.id}>
+                    {device.label}
+                    {!device.usable && device.reason ? ` (${device.reason})` : ""}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          <div className="row-actions">
+            <button onClick={() => refreshGpuData().catch(() => undefined)} disabled={gpuDiagnosticsLoading}>
+              {gpuDiagnosticsLoading ? "Refreshing diagnostics..." : "Refresh GPU Diagnostics"}
+            </button>
+          </div>
+          {gpuDiscovery.warnings.length > 0 ? (
+            <div className="warning">
+              {gpuDiscovery.warnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
+          <div className="card">
+            <h3>GPU Diagnostics</h3>
+            <p>
+              Health: {gpuDiagnostics.summary.healthy ? "Healthy" : "Needs attention"} | Selected: {gpuDiagnostics.summary.selected_backend} / Resolved: {gpuDiagnostics.summary.resolved_backend} / device {gpuDiagnostics.summary.selected_device || "N/A"}
+            </p>
+            <p>
+              NVIDIA_VISIBLE_DEVICES: {gpuDiagnostics.environment.NVIDIA_VISIBLE_DEVICES || "(unset)"}
+            </p>
+            <p>
+              NVIDIA_DRIVER_CAPABILITIES: {gpuDiagnostics.environment.NVIDIA_DRIVER_CAPABILITIES || "(unset)"}
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Status</th>
+                  <th>Message</th>
+                  <th>Hint</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gpuDiagnostics.checks.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>No diagnostics available yet.</td>
+                  </tr>
+                ) : (
+                  gpuDiagnostics.checks.map((check) => (
+                    <tr key={check.id}>
+                      <td>{check.id}</td>
+                      <td>{check.ok ? "OK" : check.severity.toUpperCase()}</td>
+                      <td>{check.message}</td>
+                      <td>{check.hint || "-"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            {gpuDiagnostics.probes.length > 0 ? (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Probe</th>
+                    <th>Status</th>
+                    <th>Message</th>
+                    <th>Hint</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gpuDiagnostics.probes.map((probe) => (
+                    <tr key={`${probe.backend}-${probe.device_id}`}>
+                      <td>{probe.backend} / {probe.device_id}</td>
+                      <td>{probe.ok ? "OK" : "FAILED"}</td>
+                      <td>{probe.message}</td>
+                      <td>{probe.hint || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+          </div>
           <button onClick={saveSettings} disabled={saving}>
             {saving ? "Saving..." : "Save Settings"}
           </button>

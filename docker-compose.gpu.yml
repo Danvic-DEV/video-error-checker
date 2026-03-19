@@ -1,0 +1,13 @@
+services:
+  video-error-checker:
+    # NVIDIA GPU override: use with
+    # docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+    gpus: all
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+
+    # For Intel/AMD VAAPI/QSV on Linux hosts, comment out gpus/env above
+    # and use the device mapping below instead:
+    # devices:
+    #   - /dev/dri:/dev/dri

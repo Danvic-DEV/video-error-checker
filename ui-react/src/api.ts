@@ -1,4 +1,11 @@
-import type { ResultRow, ScanStatus, Settings, Target } from "./types";
+import type {
+  GpuDiagnostics,
+  GpuDiscovery,
+  ResultRow,
+  ScanStatus,
+  Settings,
+  Target,
+} from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -18,11 +25,16 @@ export const api = {
     failed_discord_webhook: string;
     scan_interval_seconds: number;
     video_extensions: string;
+    gpu_enabled: boolean;
+    gpu_backend: string;
+    gpu_device_id: string;
   }) =>
     request<{ status: string }>("/api/settings", {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  getGpuDiscovery: () => request<GpuDiscovery>("/api/gpu/discovery"),
+  getGpuDiagnostics: () => request<GpuDiagnostics>("/api/gpu/diagnostics"),
 
   getTargets: () => request<Target[]>("/api/targets"),
   browseTargets: (path?: string) =>
